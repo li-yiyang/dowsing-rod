@@ -64,6 +64,9 @@
                                   ((eq char #\-) (setf upperp T) "")
                                   (T (string-downcase (string char))))))))))
 
+(defmethod ->js ((obj number))
+  (format NIL "~F" obj))
+
 (defmethod ->js ((obj list))
   (wrapper obj :fn #'->js))
 
@@ -118,7 +121,9 @@ and `&key'. And the parameter name `key-options' is preseved.
 For `options' it shoule be like a property list:
 + `:doc' for documentaion
 + `:js' for special JavaScript method name,
-  default method name should be `(->js method-name)'."
+  default method name should be `(->js method-name)'.
++ `:export' for whether export the function,
+  default is `T'."
   (labels ((mk-para-lst (paras)
              (let ((para-lst '()))
                (loop for para in paras do
@@ -156,6 +161,7 @@ For `options' it shoule be like a property list:
                                                `(->js ,para))
                                              flat-para)))
                     (js-name   (getf options :js (->js method)))
+                    (export-p  (getf options :export T))
                     (docstr    (getf options :doc
                                      (format NIL "<~A>.~A(~A~A)"
                                              class
@@ -163,40 +169,44 @@ For `options' it shoule be like a property list:
                                              (wrapper flat-para
                                                       :left "" :right ""
                                                       :fn #'->js)
-                                             (if option-p ", options" "")))))
-               `((defgeneric ,method ,(cons 'obj
-                                       (mapcar (lambda (para)
-                                                 (if (listp para)
-                                                     (first para)
-                                                     para))
-                                        para-lst))
-                   (:documentation ,docstr))
-                 (defmethod ,method ,(cons (list 'obj class) para-lst)
-                   (declare ,(cons 'ignore
-                                   (let ((res '())
-                                         (key-p NIL))
-                                     (loop for para in paras do
-                                           (cond ((eq para '&key) (setf key-p T))
-                                                 (key-p (push (if (listp para)
-                                                                  (first para)
-                                                                  para)
-                                                              res))))
-                                     (reverse res))))
-                   (clog:js-execute
-                    obj
-                    ,(append
-                      `(format NIL
-                               ,(format NIL "~A.~A~A"
-                                        "~A"
-                                        js-name
-                                        (wrapper (make-list (if option-p
-                                                                (1+ (length flat-para))
-                                                                (length flat-para))
-                                                            :initial-element "~A")
-                                                 :left "(" :right ")")))
-                      (if option-p
-                          (append ->js-para
-                                  `((plist->js (merge-plist key-options
-                                                            (quote ,default-keys)))))
-                          ->js-para))))))))
+                                             (if option-p ", options" ""))))
+                    (code
+                      `((defgeneric ,method ,(cons 'obj
+                                              (mapcar (lambda (para)
+                                                        (if (listp para)
+                                                            (first para)
+                                                            para))
+                                               para-lst))
+                          (:documentation ,docstr))
+                        (defmethod ,method ,(cons (list 'obj class) para-lst)
+                          (declare ,(cons 'ignore
+                                          (let ((res '())
+                                                (key-p NIL))
+                                            (loop for para in paras do
+                                              (cond ((eq para '&key) (setf key-p T))
+                                                    (key-p (push (if (listp para)
+                                                                     (first para)
+                                                                     para)
+                                                                 res))))
+                                            (reverse res))))
+                          (clog:js-execute
+                           obj
+                           ,(append
+                             `(format NIL
+                                      ,(format NIL "~A.~A~A"
+                                               "~A"
+                                               js-name
+                                               (wrapper (make-list (if option-p
+                                                                       (1+ (length flat-para))
+                                                                       (length flat-para))
+                                                                   :initial-element "~A")
+                                                        :left "(" :right ")")))
+                             (if option-p
+                                 (append ->js-para
+                                         `((plist->js (merge-plist key-options
+                                                                   (quote ,default-keys)))))
+                                 ->js-para)))))))
+               (if export-p
+                   (append code `((export (quote ,method))))
+                   code))))
     (cons 'progn (apply #'append (mapcar #'generate definitions)))))

@@ -2,7 +2,10 @@
 
 (defpackage #:geojson
   (:use :cl :js-convert)
-  (:export #:->geo-obj #:->json))
+  (:export #:->geo-obj
+           #:->json
+           #:geo-obj
+           #:features))
 
 (in-package :geojson)
 

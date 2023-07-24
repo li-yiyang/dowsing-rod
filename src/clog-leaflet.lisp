@@ -1,7 +1,8 @@
 (defpackage #:clog-leaflet
-  (:use #:cl #:clog #:js-convert)
+  (:use #:cl #:clog #:js-convert #:geojson)
   (:export #:create-map
-           #:create-tile-layer)
+           #:create-tile-layer
+           #:create-geojson-layer)
   (:documentation "This is CLOG Wrapper for Leaflet."))
 
 (in-package :clog-leaflet)
@@ -74,19 +75,44 @@ It should be only called once or for earsing the Leaflet."
                  :reader leaflet-id))
   (:documentation "Basic Leaflet Object class."))
 
-(defclass leaflet-map (clog-div leaflet-obj) ()
+(defclass leaflet-map (clog-div leaflet-obj)
+  ((layers :initform '()
+           :type list
+           :accessor layers)
+   (markers :initform '()
+            :type list
+            :accessor markers))
   (:documentation "`leaflet-map' object bind to Leaflet Map object.
-The `leaflet-map' object should act like a `clog-div' object."))
+The `leaflet-map' object should act like a `clog-div' object.
+
+The `layers' stores all the layers the `leaflet-map' use.
+*Note that this is barely usable, nothing could be done with it.*
+
+The `markers' stores all the markers the `leaflet-map' use."))
 
 (defclass leaflet-layer (leaflet-obj) ()
   (:documentation "Leaflet Layer class binding."))
+
+(defclass leaflet-marker (leaflet-layer)
+  ((latitude :initform :latitude
+             :accessor latitude)
+   (longitude :initform :longitude
+              :accessor longitude))
+  (:documentation "`leaflet-marker' display icons on the map."))
 
 (defclass leaflet-tile-layer (leaflet-layer)
   ((url :initarg :url
         :reader url)
    (attribution :initarg :attribution
-                :reader attribution))
+                :reader attribution)
+   (layers :initform '()
+           :accessor layers))
   (:documentation "Used to load and display tile layers on the map."))
+
+(defclass geojson-layer (leaflet-layer)
+  ((geo-obj :initarg :geo-obj
+            :accessor geo-obj))
+  (:documentation "Add `geo-obj' as layer to the map."))
 
 ;;; Method and Functions
 
@@ -135,7 +161,37 @@ The key parameters are described as below:
                             (->js tile-layer)
                             (->js (url tile-layer))
                             (plist->js (list :attribution (attribution tile-layer)))
-                            (->js map)))))
+                            (->js map)))
+    (push tile-layer (layers map))
+    tile-layer))
+
+(defgeneric create-geojson-layer (map geo-obj)
+  (:documentation "Make a `geojson-layer' object and attach it to `map'."))
+
+(defmethod create-geojson-layer ((map leaflet-map) geo-obj)
+  (let ((geojson-layer (make-instance 'geojson-layer
+                                      :geo-obj geo-obj)))
+    (js-execute map
+              (format NIL "~A = L.geoJSON(~A).addTo(~A)"
+                      (->js geojson-layer)
+                      (->js (geo-obj geojson-layer))
+                      (->js map)))
+    geojson-layer))
+
+(defgeneric create-marker (map latitude longitude)
+  (:documentation "Create `leaflet-marker' on `map'."))
+
+(defmethod create-marker ((map leaflet-marker) latitude longitude)
+  (let ((marker (make-instance 'leaflet-marker
+                               :latitude latitude
+                               :longitude longitude)))
+    (js-execute map (format NIL "~A = L.marker([~A, ~A]).addTo(~A)"
+                            (->js marker)
+                            (latitude marker)
+                            (longitude marker)
+                            (->js map)))
+    (push marker (markers map))
+    marker))
 
 (defmethod ->js ((obj leaflet-obj))
   (format NIL "~A['~A-~A']"
@@ -164,4 +220,17 @@ The options are described below:
            :doc "Decreases the zoom of the map by `zoom-ratio'."))
 
 (generate-js-wrapper
- leaflet-layer)
+ leaflet-layer
+ (leaflet-remove ()
+                 :doc "Remove leaflet object."
+                 :js "remove")
+ (bind-popup (message)
+             :doc "Binds a popup to the layer with the passed `message'.")
+ (unbind-popup ()
+               :doc "Removes the popup previously bound with bindPopup.")
+ (close-popup ()
+              :doc "Closes the popup bound to this layer if it is open.")
+ (open-popup ()
+             :doc "Opens the bound popup.")
+ (set-popup-content (message)
+                    :doc "Sets `message' of the popup bound to this layer."))

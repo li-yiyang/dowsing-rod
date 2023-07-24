@@ -1,6 +1,9 @@
 (defpackage #:nominatim
   (:use :cl :js-convert)
-  (:export #:search-query))
+  (:export #:search-query
+           #:*nominatim-host*
+           #:*nominatim-proxy*
+           #:*nominatim-fetch-parameters*))
 
 (in-package :nominatim)
 

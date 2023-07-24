@@ -52,54 +52,10 @@ Good luck.
   ;;; dowsing-rod-user.lisp
 
   (defpackage #:dowsing-rod-user
-    (:use #:dowsing-rod #:clog)
-    (:export #:start-dowsing-rod)
+    (:use #:cl #:dowsing-rod #:clog)
     (:documentation "Feel free to use the Dowsing Rod."))
-#+end_src
 
-** Variables
-#+name: dowsing-rod-user-variable-section
-#+begin_src lisp
-  ;;;;;;;;;;;;;;;;;
-  ;;; Variables
-  ;;;;;;;;;;;;;;;;;
-#+end_src
-
-+ =*map*=
-  
-  #+name: defparameter-map
-  #+begin_src lisp
-    (defparameter *map* NIL
-      "The `leaflet-map' binding to Leaflet Map object.")
-  #+end_src
-
-** Start Dowsing Rod
-#+name: defun-start-dowsing-rod
-#+begin_src lisp
-  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-  ;;; Implementation - Start Dowsing Rod
-  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-  (defun start-dowsing-rod (&optional (target 'BROWSER))
-    "Start Dowsing Rod Application.
-
-  The `target' should be:
-  + `BROWSER' to open dowsing rod application in browser.
-
-  It will bind a special global variable `*map*' as `leaflet-map' object."
-    (initialize (lambda (body)
-                  (set-margin body 0 0 0 0)
-                  (let* ((window (window body))
-                         (width  (width  window))
-                         (height (height window))
-                         (map    (create-map body :width width
-                                                  :height height))
-                         (tile-layer (create-tile-layer map)))
-                    (set-on-resize window (lambda (win)
-                                            (setf (width map) (width win)
-                                                  (height map) (height win))))
-                    (setf *map* map))))
-    (cond ((eq target 'BROWSER) (open-browser))))
+  (in-package :dowsing-rod-user)
 #+end_src
 
 * Dowsing Rod
@@ -126,7 +82,54 @@ Good luck.
   ;;; Variables
   ;;;;;;;;;;;;;;;;;
 #+end_src
+
++ =*map*=
   
+  #+name: defparameter-map
+  #+begin_src lisp
+    (defparameter *map* NIL
+      "The `leaflet-map' binding to Leaflet Map object.")
+  #+end_src
+
+** Method and Functions
+#+name: dowsing-rod-method-and-functions
+#+begin_src lisp
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  ;;; Method and Functions
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+#+end_src
+
++ =start-dowsing-rod=
+  
+  #+name: defun-start-dowsing-rod
+  #+begin_src lisp
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;;; Implementation - Start Dowsing Rod
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+    (defun start-dowsing-rod (&optional (target 'BROWSER))
+      "Start Dowsing Rod Application.
+
+    The `target' should be:
+    + `BROWSER' to open dowsing rod application in browser.
+
+    It will bind a special global variable `*map*' as `leaflet-map' object."
+      (initialize (lambda (body)
+                    (set-margin body 0 0 0 0)
+                    (let* ((window (window body))
+                           (width  (width  window))
+                           (height (height window))
+                           (map    (create-map body :width width
+                                                    :height height))
+                           (tile-layer (create-tile-layer map)))
+                      (declare (ignore tile-layer))
+                      (set-on-resize window (lambda (win)
+                                              (setf (width map) (width win)
+                                                    (height map) (height win))))
+                      (setf *map* map))))
+      (cond ((eq target 'BROWSER) (open-browser))))
+  #+end_src
+
 * JS Convert
 :PROPERTIES:
 :header-args: :tangle src/js-convert.lisp
@@ -239,6 +242,13 @@ literally.
                                         ((eq char #\-) (setf upperp T) "")
                                         (T (string-downcase (string char))))))))))
     #+end_src
+  + Number (all to Float)
+
+    #+name: defmethod-to-js-number
+    #+begin_src lisp
+      (defmethod ->js ((obj number))
+        (format NIL "~F" obj))
+    #+end_src
   + List =(a b c ...)= → ="[a, b, c]"=
 
     #+name: defmethod-to-js-list
@@ -317,7 +327,9 @@ literally.
     For `options' it shoule be like a property list:
     + `:doc' for documentaion
     + `:js' for special JavaScript method name,
-      default method name should be `(->js method-name)'."
+      default method name should be `(->js method-name)'.
+    + `:export' for whether export the function,
+      default is `T'."
       (labels ((mk-para-lst (paras)
                  (let ((para-lst '()))
                    (loop for para in paras do
@@ -355,6 +367,7 @@ literally.
                                                    `(->js ,para))
                                                  flat-para)))
                         (js-name   (getf options :js (->js method)))
+                        (export-p  (getf options :export T))
                         (docstr    (getf options :doc
                                          (format NIL "<~A>.~A(~A~A)"
                                                  class
@@ -362,42 +375,46 @@ literally.
                                                  (wrapper flat-para
                                                           :left "" :right ""
                                                           :fn #'->js)
-                                                 (if option-p ", options" "")))))
-                   `((defgeneric ,method ,(cons 'obj
-                                           (mapcar (lambda (para)
-                                                     (if (listp para)
-                                                         (first para)
-                                                         para))
-                                            para-lst))
-                       (:documentation ,docstr))
-                     (defmethod ,method ,(cons (list 'obj class) para-lst)
-                       (declare ,(cons 'ignore
-                                       (let ((res '())
-                                             (key-p NIL))
-                                         (loop for para in paras do
-                                               (cond ((eq para '&key) (setf key-p T))
-                                                     (key-p (push (if (listp para)
-                                                                      (first para)
-                                                                      para)
-                                                                  res))))
-                                         (reverse res))))
-                       (clog:js-execute
-                        obj
-                        ,(append
-                          `(format NIL
-                                   ,(format NIL "~A.~A~A"
-                                            "~A"
-                                            js-name
-                                            (wrapper (make-list (if option-p
-                                                                    (1+ (length flat-para))
-                                                                    (length flat-para))
-                                                                :initial-element "~A")
-                                                     :left "(" :right ")")))
-                          (if option-p
-                              (append ->js-para
-                                      `((plist->js (merge-plist key-options
-                                                                (quote ,default-keys)))))
-                              ->js-para))))))))
+                                                 (if option-p ", options" ""))))
+                        (code
+                          `((defgeneric ,method ,(cons 'obj
+                                                  (mapcar (lambda (para)
+                                                            (if (listp para)
+                                                                (first para)
+                                                                para))
+                                                   para-lst))
+                              (:documentation ,docstr))
+                            (defmethod ,method ,(cons (list 'obj class) para-lst)
+                              (declare ,(cons 'ignore
+                                              (let ((res '())
+                                                    (key-p NIL))
+                                                (loop for para in paras do
+                                                  (cond ((eq para '&key) (setf key-p T))
+                                                        (key-p (push (if (listp para)
+                                                                         (first para)
+                                                                         para)
+                                                                     res))))
+                                                (reverse res))))
+                              (clog:js-execute
+                               obj
+                               ,(append
+                                 `(format NIL
+                                          ,(format NIL "~A.~A~A"
+                                                   "~A"
+                                                   js-name
+                                                   (wrapper (make-list (if option-p
+                                                                           (1+ (length flat-para))
+                                                                           (length flat-para))
+                                                                       :initial-element "~A")
+                                                            :left "(" :right ")")))
+                                 (if option-p
+                                     (append ->js-para
+                                             `((plist->js (merge-plist key-options
+                                                                       (quote ,default-keys)))))
+                                     ->js-para)))))))
+                   (if export-p
+                       (append code `((export (quote ,method))))
+                       code))))
         (cons 'progn (apply #'append (mapcar #'generate definitions)))))
   #+end_src
   
@@ -416,7 +433,10 @@ by name and address and to generate synthetic addresses of OSM points
 #+begin_src lisp
   (defpackage #:nominatim
     (:use :cl :js-convert)
-    (:export #:search-query))
+    (:export #:search-query
+             #:*nominatim-host*
+             #:*nominatim-proxy*
+             #:*nominatim-fetch-parameters*))
 
   (in-package :nominatim)
 #+end_src
@@ -546,7 +566,10 @@ GeoJSON is a format for encoding a variety of geographic data structures.
 
   (defpackage #:geojson
     (:use :cl :js-convert)
-    (:export #:->geo-obj #:->json))
+    (:export #:->geo-obj
+             #:->json
+             #:geo-obj
+             #:features))
 
   (in-package :geojson)
 #+end_src
@@ -795,9 +818,10 @@ by FeatureCollection objects.
 #+name: defpackage-clog-leaflet
 #+begin_src lisp
   (defpackage #:clog-leaflet
-    (:use #:cl #:clog #:js-convert)
+    (:use #:cl #:clog #:js-convert #:geojson)
     (:export #:create-map
-             #:create-tile-layer)
+             #:create-tile-layer
+             #:create-geojson-layer)
     (:documentation "This is CLOG Wrapper for Leaflet."))
 
   (in-package :clog-leaflet)
@@ -920,9 +944,20 @@ by FeatureCollection objects.
   
   #+name: defclass-clog-leaflet
   #+begin_src lisp
-    (defclass leaflet-map (clog-div leaflet-obj) ()
+    (defclass leaflet-map (clog-div leaflet-obj)
+      ((layers :initform '()
+               :type list
+               :accessor layers)
+       (markers :initform '()
+                :type list
+                :accessor markers))
       (:documentation "`leaflet-map' object bind to Leaflet Map object.
-    The `leaflet-map' object should act like a `clog-div' object."))
+    The `leaflet-map' object should act like a `clog-div' object.
+
+    The `layers' stores all the layers the `leaflet-map' use.
+    ,*Note that this is barely usable, nothing could be done with it.*
+
+    The `markers' stores all the markers the `leaflet-map' use."))
   #+end_src
 + Leaflet-Layer
 
@@ -931,6 +966,17 @@ by FeatureCollection objects.
     (defclass leaflet-layer (leaflet-obj) ()
       (:documentation "Leaflet Layer class binding."))
   #+end_src
+  + Marker
+
+    #+name: defclass-clog-leaflet-marker
+    #+begin_src lisp
+      (defclass leaflet-marker (leaflet-layer)
+        ((latitude :initform :latitude
+                   :accessor latitude)
+         (longitude :initform :longitude
+                    :accessor longitude))
+        (:documentation "`leaflet-marker' display icons on the map."))
+    #+end_src
   + Tile Layer
 
     #+name: defclass-clog-leaflet-tile-layer
@@ -939,8 +985,19 @@ by FeatureCollection objects.
         ((url :initarg :url
               :reader url)
          (attribution :initarg :attribution
-                      :reader attribution))
+                      :reader attribution)
+         (layers :initform '()
+                 :accessor layers))
         (:documentation "Used to load and display tile layers on the map."))
+    #+end_src
+  + GeoJSON Layer
+
+    #+name: defclass-clog-geojson-layer
+    #+begin_src lisp
+      (defclass geojson-layer (leaflet-layer)
+        ((geo-obj :initarg :geo-obj
+                  :accessor geo-obj))
+        (:documentation "Add `geo-obj' as layer to the map."))
     #+end_src
     
 **** Method and Functions
@@ -986,9 +1043,9 @@ by FeatureCollection objects.
                  (alist->js `((center . ,center)
                               (zoom   . ,zoom)))))))
   #+end_src
-+ =add-tile-layer=
++ =create-tile-layer=
 
-  #+name: def-add-tile-layer
+  #+name: def-create-tile-layer
   #+begin_src lisp
     (defgeneric create-tile-layer (map &key url attribution)
       (:documentation "Add Tile Layer to `map'. Return `leaflet-tile-layer' object."))
@@ -1002,7 +1059,45 @@ by FeatureCollection objects.
                                 (->js tile-layer)
                                 (->js (url tile-layer))
                                 (plist->js (list :attribution (attribution tile-layer)))
-                                (->js map)))))
+                                (->js map)))
+        (push tile-layer (layers map))
+        tile-layer))
+  #+end_src
++ =create-geojson-layer=
+
+  #+name: def-create-geojson-layer
+  #+begin_src lisp
+    (defgeneric create-geojson-layer (map geo-obj)
+      (:documentation "Make a `geojson-layer' object and attach it to `map'."))
+
+    (defmethod create-geojson-layer ((map leaflet-map) geo-obj)
+      (let ((geojson-layer (make-instance 'geojson-layer
+                                          :geo-obj geo-obj)))
+        (js-execute map
+                  (format NIL "~A = L.geoJSON(~A).addTo(~A)"
+                          (->js geojson-layer)
+                          (->js (geo-obj geojson-layer))
+                          (->js map)))
+        geojson-layer))
+  #+end_src
++ =create-marker=
+
+  #+name: def-create-marker
+  #+begin_src lisp
+    (defgeneric create-marker (map latitude longitude)
+      (:documentation "Create `leaflet-marker' on `map'."))
+
+    (defmethod create-marker ((map leaflet-marker) latitude longitude)
+      (let ((marker (make-instance 'leaflet-marker
+                                   :latitude latitude
+                                   :longitude longitude)))
+        (js-execute map (format NIL "~A = L.marker([~A, ~A]).addTo(~A)"
+                                (->js marker)
+                                (latitude marker)
+                                (longitude marker)
+                                (->js map)))
+        (push marker (markers map))
+        marker))
   #+end_src
 + =->js=
 
@@ -1014,6 +1109,35 @@ by FeatureCollection objects.
               (type-of obj)
               (leaflet-id obj)))
   #+end_src
+
+**** COMMENT Event and Methods  
+#+name: clog-leaflet-event-and-method
+#+begin_src lisp
+  ;;; Event and Methods
+#+end_src
+
++ =bind-js-event=
+
+  #+name: defun-bind-js-event
+  #+headers: :tangle no
+  #+begin_src lisp
+    (defgeneric bind-js-event (obj event handler)
+      (:documentation "Bind JS `event' with `obj' by `handler'."))
+
+    (defmethod bind-js-event ((obj leaflet-obj) event handler)
+      (labels ((wrap-handler (handler)
+                 (format NIL "ws.send('E:~A ')")))
+        (js-execute
+         obj
+         (format NIL "~A.on('~A', function (e, ...data) {~A})"
+                 (->js obj)
+                 event))))
+  #+end_src
++ =generate-js-event=
+
+  #+name: defmacro-generate-js-event
+  #+begin_src lisp
+  #+end_src
   
 **** JS Wrapper
 #+name: clog-leaflet-js-wrapper-section
@@ -1023,7 +1147,7 @@ by FeatureCollection objects.
 
 + =leaflet-map=
   
-  #+name: generate-js-wrapper-leaflet-map
+i  #+name: generate-js-wrapper-leaflet-map
   #+begin_src lisp
     (generate-js-wrapper
      leaflet-map
@@ -1048,10 +1172,43 @@ by FeatureCollection objects.
   #+name: generate-js-wrapper-leaflet-layer
   #+begin_src lisp
     (generate-js-wrapper
-     leaflet-layer)
+     leaflet-layer
+     (leaflet-remove ()
+                     :doc "Remove leaflet object."
+                     :js "remove")
+     (bind-popup (message)
+                 :doc "Binds a popup to the layer with the passed `message'.")
+     (unbind-popup ()
+                   :doc "Removes the popup previously bound with bindPopup.")
+     (close-popup ()
+                  :doc "Closes the popup bound to this layer if it is open.")
+     (open-popup ()
+                 :doc "Opens the bound popup.")
+     (set-popup-content (message)
+                        :doc "Sets `message' of the popup bound to this layer."))
   #+end_src
   
 * Others
+** For Myself Debug Notes
+#+name: for-myself-debug-notes
+#+begin_src lisp
+  (ql:quickload '("clog" "dexador" "yason" "quri"))
+
+  ;;; Load the following if needed
+  (load #P "~/common-lisp/dowsing-rod/src/js-convert.lisp")
+  (load #P "~/common-lisp/dowsing-rod/src/nominatim.lisp")
+  (load #P "~/common-lisp/dowsing-rod/src/geojson.lisp")
+  (load #P "~/common-lisp/dowsing-rod/src/clog-leaflet.lisp")
+  (load #P "~/common-lisp/dowsing-rod/dowsing-rod.lisp")
+#+end_src
+
+When I found myself messed something up, I run these in REPL,
+and dive into a package (for example =clog-leaflet=),
+but in developing one (=clog-leaflet-dev=).
+
+And if you could see this section, which means I'm still
+struggling with this project.  
+
 ** License
 #+name: mit-license
 #+header: :tangle LICENSE
